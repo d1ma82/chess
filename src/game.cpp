@@ -31,6 +31,7 @@ namespace game {
 */
     void on_message(const std::string& message) {
         
+        if (!connection) return;
         LOGD("Incoming '%s'", message.c_str())
 
         if (message.find("Hello", 0) != std::string::npos) {
