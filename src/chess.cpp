@@ -13,12 +13,14 @@ namespace chess {
     using on_progress = std::function<void (int)>;
     using on_non_empty = std::function<void (int)>;
 
+    enum Choose {LONG_CASTLING, SHORT_CASTLING, MOVE};
+    
     enum States {VOID, B_ROOK, B_KNIGHT, B_BISHOP, B_QUEEN, B_KING, B_PAWN,
                 W_PAWN, W_ROOK, W_KHIGHT, W_BISHOP, W_QUEEN, W_KING};
 
     struct Move {
         States state;
-        std::string half {'\0', '\0', '\0', '\0'};
+        std::string move {'\0', '\0', '\0', '\0'};
     };
 
    const std::array<unsigned int, BOARD_SIZE*BOARD_SIZE> init_position =  {
@@ -35,14 +37,16 @@ namespace chess {
     const unsigned int selected_bit = 1<<8;
     const unsigned int move_bit = 1<<9;
     int last_selected;      // last position
-    int choosed_pos;        // choosed position
+    unsigned int start_pos; // position from ray begins
+    int king_pos;           
     std::vector<unsigned int> availables; // available moves
     std::vector<Move> moves;
-    std::array<int, 8> knight_pos;  
     bool whites_;
     bool castling_enabled;
+    bool choose_begin;
     bool king_select;
     bool wait=false;
+    bool is_check;
     on_move move_event;
 
     std::string state_to_str(States state) {
@@ -63,17 +67,21 @@ namespace chess {
         
         move_event          = listener;
         last_selected       =-1;
-        choosed_pos         =-1;
+        choose_begin         =false;
         whites_             = whites;
         castling_enabled    = true;
         king_select         = false;
+        is_check            = false;
         wait                = !whites;
+        king_pos            = whites_? 60: 59;
         availables.reserve(64);
         if (whites_) std::copy(init_position.begin(), init_position.end(), position.begin());
         else std::copy(init_position.rbegin(), init_position.rend(), position.begin());
     }
 
-    inline void add_available (int pos) {
+    inline bool empty(int pos) { return (position[pos]&0xFF) == VOID; }
+
+    void add_available (int pos) {
 
         position[pos] += move_bit;
         availables.push_back(pos);
@@ -83,8 +91,6 @@ namespace chess {
         return whites_? position[at_pos] > 0 && position[at_pos] < 7
                       : position[at_pos] > 6 && position[at_pos] < 13;
     }
-
-    inline bool empty(int pos) { return (position[pos]&0xFF) == VOID; }
 
     template<int dx, int dy>
     void go (int x, int y, int lim, on_progress progress, on_non_empty non_empty) {
@@ -109,12 +115,56 @@ namespace chess {
             case 8:     go<-1, 1> (from_x-1, from_y+1, lim, progress, non_empty); break;            //run_south_west 
         }
     }
+    
+    bool atacked (int);
+
+    void next_empty (int at) {
+        
+        std::swap(position[at], position[start_pos]);
+
+        if (!is_check) { 
+                // figure can only move when that not brings check
+            if (atacked(king_pos)) { std::swap(position[at], position[start_pos]); return; }
+            std::swap(position[at], position[start_pos]);
+            add_available(at); 
+            return; 
+        }
+        
+        if (atacked(king_pos)) { std::swap(position[at], position[start_pos]); return; }
+                     
+        std::swap(position[at], position[start_pos]);   
+        add_available(at);   
+    }
+
+    void non_empty (int at) {
+
+        if (!enemy(at)) return;
+        
+        unsigned int old_state = position[at];
+        position[at] = position[start_pos];
+        position[start_pos] = VOID;
+
+        if (!is_check) { 
+            
+            if (atacked(king_pos)) { position[start_pos] = position[at]; position[at] = old_state; return; }
+            position[start_pos] = position[at];
+            position[at] = old_state;
+            add_available(at); 
+            return;
+        }
+
+        if (atacked(king_pos)) { position[start_pos] = position[at]; position[at] = old_state; return; }
+        
+        position[start_pos] = position[at];
+        position[at] = old_state;
+        add_available(at);        
+    }
 
     bool pawn (int x, int y, int pos) {
         
-        ray (3, x, y, add_available, [] (int) {}, y==6? 2: 1);
-        ray (2, x, y, [] (int) {}, [] (int pos) { if (enemy(pos)) add_available(pos); }, 1);
-        ray (4, x, y, [] (int) {}, [] (int pos) { if (enemy(pos)) add_available(pos); }, 1);
+        ray (3, x, y, next_empty, [] (int) {}, y==6? 2: 1);
+        ray (2, x, y, [] (int) {}, non_empty, 1);
+        ray (4, x, y, [] (int) {}, non_empty, 1);
 
         //TODO: intercept move
         return availables.size()>0;
@@ -122,13 +172,13 @@ namespace chess {
 
     bool rook (int x, int y) {
         
-        for (int i=1; i<9; i+=2) ray(i, x, y, add_available, [] (int pos) { if (enemy(pos)) add_available(pos); });
+        for (int i=1; i<9; i+=2) ray(i, x, y, next_empty, non_empty); 
         return availables.size() > 0;
     }
 
-    void calc_knight_pos(int x, int y) {
+    void calc_knight_pos(int x, int y, std::array<int, 8>& arr) {
 
-        knight_pos = {
+        arr = {
             y-1<0 || x-2<0                      ? -1: (y-1)*BOARD_SIZE+x-2, 
             y-2<0 || x-1<0                      ? -1: (y-2)*BOARD_SIZE+x-1,
             y-2<0 || x+1>=BOARD_SIZE            ? -1: (y-2)*BOARD_SIZE+x+1,
@@ -141,63 +191,67 @@ namespace chess {
     }
 
     bool knight (int x, int y) {
-                    
-        calc_knight_pos(x,  y);
 
-        std::for_each(knight_pos.begin(), knight_pos.end(), 
+        std::array<int, 8> knight;        
+        calc_knight_pos(x,  y, knight);
+
+        std::for_each(knight.begin(), knight.end(), 
             [] (int v) { 
-                if (v>=0) {
+                if (v<0) return; 
 
-                    if (!empty (v)) {
-
-                        if (enemy(v)) add_available (v);
-                        return;
-                    }
-                    add_available (v);
-                }
+                if (empty (v)) { next_empty (v); return; }
+                non_empty (v);
         });
         return availables.size()>0;
     }
 
     bool bishop (int x, int y) {
 
-        for (int i=2; i<9; i+=2) ray(i, x, y, add_available, [] (int pos) { if (enemy(pos)) add_available(pos); });
+        for (int i=2; i<9; i+=2) ray(i, x, y, next_empty, non_empty);
         return availables.size()>0;
     }
 
     bool queen (int x, int y) {
 
-        for (int i=1; i<9; ++i) ray(i, x, y, add_available, [] (int pos) { if (enemy(pos)) add_available(pos); });
+        for (int i=1; i<9; ++i) ray(i, x, y, next_empty, non_empty);
         return availables.size()>0;
     }
 
     bool atacked (int pos) {
 
         int x = pos%BOARD_SIZE, y = pos/BOARD_SIZE;
+        std::array<int, 8> knight;
+        calc_knight_pos(x,  y, knight);
+
+        if (std::any_of(knight.begin(), knight.end(), 
+            [] (int p) { return p>0 && (position[p]&0xFF) == (whites_? B_KNIGHT: W_KHIGHT); })) return true;
+
         for (int i=1; i<9; ++i) {
 
-            bool value;
+            bool ret = false;
+
             ray(i, x, y, [] (int) {}, 
-                    [=, &value] (int at) {
+                    [=, &ret] (int at) {
+                        
                         switch (position[at]&0xFF) {
                         
-                            case B_ROOK:    value = whites_? i % 2 != 0: false; break; 
-                            case B_BISHOP:  value = whites_? i % 2 == 0: false; break;
-                            case B_QUEEN:   value = whites_? true      : false; break;
-                            case B_KING:    value = whites_? true : false; break;
-                            case B_PAWN:    {int px=at/BOARD_SIZE, py=at%BOARD_SIZE; 
-                                             LOGD("%d, %d, %d, %d, %d", px, py, x, y, i) 
-                                             value = whites_? abs(px-x)==1 && y-py==1: false; break;}
-                     //       case W_PAWN:    value = whites_? false     : (i==2 && length==2) || (i==4 && length==2); break;
-                            case W_ROOK:    value = whites_? false     : i % 2 != 0; break; 
-                            case W_BISHOP:  value = whites_? false     : i % 2 == 0; break; 
-                            case W_QUEEN:   value = whites_? false     : true; break; 
-                            case W_KING:    value = whites_? false     : true; break;
-                            default:        value = false;
+                            case B_ROOK:    ret = whites_? i % 2 != 0: false; break; 
+                            case B_KNIGHT:  ret = false;
+                            case B_BISHOP:  ret = whites_? i % 2 == 0: false; break;
+                            case B_QUEEN:   ret = whites_? true      : false; break;
+                            case B_KING:    {int px=at%BOARD_SIZE, py=at/BOARD_SIZE; ret = whites_? abs(px-x)==1 || abs(y-py)==1: false; break;}
+                            case B_PAWN:    {int px=at%BOARD_SIZE, py=at/BOARD_SIZE; ret = whites_? abs(px-x)==1 && y-py==1: false; break;}
+                            case W_PAWN:    {int px=at%BOARD_SIZE, py=at/BOARD_SIZE; ret = whites_? false: abs(px-x)==1 && y-py==1; break;}
+                            case W_ROOK:    ret = whites_? false     : i % 2 != 0; break; 
+                            case W_KHIGHT:  ret = false;
+                            case W_BISHOP:  ret = whites_? false     : i % 2 == 0; break; 
+                            case W_QUEEN:   ret = whites_? false     : true; break; 
+                            case W_KING:    {int px=at%BOARD_SIZE, py=at/BOARD_SIZE; ret = whites_? false: abs(px-x)==1 || abs(y-py)==1; break;}
+                            default:        ret = false;
                         }                        
                     }
             ); 
-            if (value) return true;        
+            if (ret) return ret;       
         }          
         return false;
     }
@@ -209,7 +263,7 @@ namespace chess {
 
             ray(i, x, y,
                 [] (int pos) { if (!atacked(pos)) add_available(pos); }, 
-                            [] (int pos) { if (enemy(pos)) add_available(pos); }, 1);
+                            [] (int pos) { if (enemy(pos) && !atacked(pos)) add_available(pos); }, 1);
         }        
         
         if (castling_enabled) {
@@ -221,23 +275,23 @@ namespace chess {
                 ray (i, x, y, 
                     [&] (int pos) { if (atacked(pos)) atacked_pos=true; }, 
                     
-                    [&] (int pos) { 
-                        if (position[pos] == W_ROOK) { 
+                    [&] (int pos) {
+                        switch (position[pos]&0xFF) {
+                            case W_ROOK: 
                                 rook_moved = std::any_of(moves.begin(), moves.end(),
-                                        [=] (const Move& m) { return std::strncmp((i==1? "a1": "h1"), m.half.c_str(), 2) == 0; });
-                                return;
-                        } else if (position[pos] == B_ROOK) {
+                                       [=] (const Move& m) { return std::strncmp((i==1? "a1": "h1"), m.move.c_str(), 2) == 0; });
+                                break;
+                            case B_ROOK:
                                 rook_moved = std::any_of(moves.begin(), moves.end(),
-                                        [=] (const Move& m) { return std::strncmp((i==1? "h8": "a8"), m.half.c_str(), 2) == 0; });
-                                return;                                
+                                        [=] (const Move& m) { return std::strncmp((i==1? "h8": "a8"), m.move.c_str(), 2) == 0; });
+                                break; 
+                            default: free_way = false;
                         }
-                        free_way = false;
                     }
                 );
                 if (free_way && !rook_moved && !atacked_pos) add_available(i==1? pos-2: pos+2);
             }         
         }
-
         return availables.size()>0;
     }
 
@@ -261,7 +315,7 @@ namespace chess {
         }
     }
 
-    std::string make_long_castling (int where, int from) {
+    Choose make_long_castling (int where, int from) {
         
         LOGD("Long %d:%d", from, where)
         if (whites_) {
@@ -270,11 +324,10 @@ namespace chess {
             std::swap(position[where+2], position[where-1]);
         }
         std::swap(position[where], position[from]);
-        castling_enabled=false;
-        return "0-0-0";
+        return LONG_CASTLING;
     }
 
-    std::string make_short_castling (int where, int from) {
+    Choose make_short_castling (int where, int from) {
         
         LOGD("Short %d:%d", from, where)
         if (whites_) {
@@ -283,41 +336,43 @@ namespace chess {
             std::swap(position[where-1], position[where+1]);
         }
         std::swap(position[where], position[from]);
-        castling_enabled=false;
-        return "0-0";
+        return SHORT_CASTLING;
     }
 
-    std::string make_move(int where, int from) {
+    Choose make_move(int where, int from) {
 
-        std::ostringstream str;
         if (empty (where)) std::swap(position[where], position[from]);
-        else if (enemy(where)) { position[where] = position[from]; position[from] = VOID; }
-
-        if (king_select) castling_enabled=false;
-        
-        if (whites_) str << static_cast<char>('a'+from%BOARD_SIZE) << BOARD_SIZE-from/BOARD_SIZE << 
-                                    static_cast<char>('a'+where%BOARD_SIZE) << BOARD_SIZE-where/BOARD_SIZE;
-                                    
-        else str << static_cast<char>('h'-from%BOARD_SIZE) << 1+from/BOARD_SIZE <<
-                            static_cast<char>('h'-where%BOARD_SIZE) << 1+where/BOARD_SIZE;
-        return str.str();         
+        else if (enemy(where)) { position[where] = position[from]; position[from] = VOID; }        
+        return MOVE;
     }
 
-    void on_choose_end (int where, int from) {
+    Choose on_choose_end (int where, int from) {
                 
         if (castling_enabled && king_select && abs(where-from)==2) {
              
-             if (whites_) {
-                moves.emplace_back (States(position[where]&0xFF), 
-                    (from > where? make_long_castling(where, from): make_short_castling(where, from)));
-             } else {
-                moves.emplace_back (States(position[where]&0xFF), 
-                    (from > where? make_short_castling(where, from): make_long_castling(where, from)));
-             }
+             if (whites_) return from > where? make_long_castling(where, from): make_short_castling(where, from);
+             else return from > where? make_short_castling(where, from): make_long_castling(where, from);
+
         } else {
-            moves.emplace_back (States(position[where]&0xFF), make_move (where, from));
+           return make_move (where, from);
         }
-        LOGD("\t%s:\t%s", state_to_str(States(position[where]&0xFF)).c_str(), moves.rbegin()->half.c_str()) 
+    }
+    void write_move (Choose choose, int pos) {
+
+        switch (choose) {
+            case LONG_CASTLING:  moves.emplace_back (States(position[pos]&0xFF), "0-0-0"); break;
+            case SHORT_CASTLING: moves.emplace_back (States(position[pos]&0xFF), "0-0"); break;
+            default: {
+                    std::ostringstream str;
+                    if (whites_) str << static_cast<char>('a'+start_pos%BOARD_SIZE) << BOARD_SIZE-start_pos/BOARD_SIZE << 
+                            static_cast<char>('a'+pos%BOARD_SIZE) << BOARD_SIZE-pos/BOARD_SIZE;
+                            
+                    else str << static_cast<char>('h'-start_pos%BOARD_SIZE) << 1+start_pos/BOARD_SIZE <<
+                                        static_cast<char>('h'-pos%BOARD_SIZE) << 1+pos/BOARD_SIZE;
+        
+                    moves.emplace_back (States(position[pos]&0xFF), str.str());                        
+            }
+        }
     }
     /**
      * 
@@ -328,59 +383,71 @@ namespace chess {
         
         if (wait) return;
 
-        if (last_selected>=0) position[last_selected] &= ~selected_bit; //unset select
-        
-        int pos = y*BOARD_SIZE+x;        
-        
-        if (choosed_pos>=0) {
+        if (last_selected>=0) position[last_selected] &= ~selected_bit; //unset select     
+        int choosed = y*BOARD_SIZE+x; 
+
+        if (choose_begin) {
             
             std::for_each(availables.begin(), availables.end(), 
                         [] (unsigned int v) { position[v] &= ~move_bit; });             // remove move bit
             
-            if (std::find(availables.begin(), availables.end(), pos) != availables.end()) {
+            if (std::find(availables.begin(), availables.end(), choosed) != availables.end()) {
 
-                on_choose_end (pos, choosed_pos);
-                move_event("move_done:"+moves.rbegin()->half); 
+                Choose choose = on_choose_end (choosed, start_pos);
+                write_move (choose, choosed);
+
+                if (king_select) { king_pos = choosed; castling_enabled=false; }
+
+                if (is_check) is_check=false;
+
+                move_event("move_done:"+moves.rbegin()->move); 
                 wait = !wait;       // wait for opponent
+
+                LOGD("\t%s:\t%s", state_to_str(moves.rbegin()->state).c_str(), moves.rbegin()->move.c_str()) 
             }
-            pos=-1;
-            king_select=false;
-            choosed_pos = -1;
+            choose_begin    = false;
+            last_selected   = -1;
+            king_select     = false;
             availables.clear();
 
         } else {
-                // Begin construct availabe moves
-            choosed_pos = on_choose_begin (States(position[pos]&0xFF), x, y, pos)? pos: -1;
-            position[pos] += selected_bit; 
+                // Begin construct availabe moves 
+            start_pos = choosed;
+            choose_begin = on_choose_begin (States(position[choosed]&0xFF), x, y, choosed);
+            position[choosed] += selected_bit; 
+            last_selected = choosed;
         }
-        last_selected = pos;
     }
+
 /**
  * Retrieve opponent move in chess notation, convert to local coordinates, apply move
  * 
 */
     void opponent_move (const std::string& move) {
 
-        LOGD("Op move %s", move.c_str())
         int from=0, where=0;
         bool old_castling, old_king;
+        int old_king_pos;
 
         if (move.compare("0-0") == 0) {
 
-            old_castling = castling_enabled, old_king=king_select;
+            old_castling = castling_enabled, old_king=king_select, old_king_pos = king_pos;
             castling_enabled=true, king_select=true;
 
             if (whites_) { from = 4, where = 6; } else { from = 3, where = 1; }
-            on_choose_end(where, from);
-            castling_enabled=old_castling, king_select=old_king;
+            write_move(on_choose_end(where, from), where);
+
+            castling_enabled=old_castling, king_select=old_king, king_pos=old_king_pos;
         }
         else if (move.compare("0-0-0") == 0) {
 
-            old_castling = castling_enabled, old_king=king_select;
+            old_castling = castling_enabled, old_king=king_select, old_king_pos = king_pos;
             castling_enabled=true, king_select=true;
+
             if (whites_) { from = 4, where = 2; } else { from = 3, where = 5; }
-            on_choose_end(where, from);
-            castling_enabled=old_castling, king_select=old_king;
+            write_move(on_choose_end(where, from), where);
+
+            castling_enabled=old_castling, king_select=old_king, king_pos=old_king_pos;
 
         } else {
             if (whites_) {
@@ -391,11 +458,12 @@ namespace chess {
                 where = (move[3]-'1') * BOARD_SIZE + ('h'-move[2]);
             }
             whites_=!whites_;
-            on_choose_end (where, from);
+            write_move(on_choose_end (where, from), where);
             whites_=!whites_;
-            LOGD("Parsed move %d:%d", from, where)
         }
+        is_check = atacked(king_pos);
         wait = !wait;
+        LOGD("Opponent: \t%s:\t%s", state_to_str(moves.rbegin()->state).c_str(), moves.rbegin()->move.c_str()) 
     }
 
     void clear() {
