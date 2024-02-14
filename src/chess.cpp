@@ -56,7 +56,7 @@ namespace chess {
             case B_ROOK:   case W_ROOK:     return "ROOK";
             case B_KNIGHT: case W_KHIGHT:   return "KNIGHT";
             case B_BISHOP: case W_BISHOP:   return "BISHOP";
-            case B_QUEEN:  case W_QUEEN:    return "QUENN";
+            case B_QUEEN:  case W_QUEEN:    return "QUEEN";
             case B_KING:   case W_KING:     return "KING";
             case B_PAWN:   case W_PAWN:     return "PAWN";
             default:       return "VOID";
@@ -178,16 +178,14 @@ namespace chess {
 
     void calc_knight_pos(int x, int y, std::array<int, 8>& arr) {
 
-        arr = {
-            y-1<0 || x-2<0                      ? -1: (y-1)*BOARD_SIZE+x-2, 
-            y-2<0 || x-1<0                      ? -1: (y-2)*BOARD_SIZE+x-1,
-            y-2<0 || x+1>=BOARD_SIZE            ? -1: (y-2)*BOARD_SIZE+x+1,
-            y-1<0 || x+2>=BOARD_SIZE            ? -1: (y-1)*BOARD_SIZE+x+2,
-            y+1>=BOARD_SIZE || x+2>=BOARD_SIZE  ? -1: (y+1)*BOARD_SIZE+x+2,
-            y+2>=BOARD_SIZE || x+1>=BOARD_SIZE  ? -1: (y+2)*BOARD_SIZE+x+1,
-            y+2>=BOARD_SIZE || x-1<0            ? -1: (y+2)*BOARD_SIZE+x-1,
-            y+1>=BOARD_SIZE || x-2<0            ? -1: (y+1)*BOARD_SIZE+x-2
-        };
+        arr = { y-1<0 || x-2<0                      ? -1: (y-1)*BOARD_SIZE+x-2, 
+                y-2<0 || x-1<0                      ? -1: (y-2)*BOARD_SIZE+x-1,
+                y-2<0 || x+1>=BOARD_SIZE            ? -1: (y-2)*BOARD_SIZE+x+1,
+                y-1<0 || x+2>=BOARD_SIZE            ? -1: (y-1)*BOARD_SIZE+x+2,
+                y+1>=BOARD_SIZE || x+2>=BOARD_SIZE  ? -1: (y+1)*BOARD_SIZE+x+2,
+                y+2>=BOARD_SIZE || x+1>=BOARD_SIZE  ? -1: (y+2)*BOARD_SIZE+x+1,
+                y+2>=BOARD_SIZE || x-1<0            ? -1: (y+2)*BOARD_SIZE+x-1,
+                y+1>=BOARD_SIZE || x-2<0            ? -1: (y+1)*BOARD_SIZE+x-2 };
     }
 
     bool knight (int x, int y) {
@@ -317,7 +315,6 @@ namespace chess {
 
     Choose make_long_castling (int where, int from) {
         
-        LOGD("Long %d:%d", from, where)
         if (whites_) {
             std::swap(position[where-2], position[where+1]);
         } else {
@@ -329,7 +326,6 @@ namespace chess {
 
     Choose make_short_castling (int where, int from) {
         
-        LOGD("Short %d:%d", from, where)
         if (whites_) {
             std::swap(position[where+1], position[where-1]);
         } else {
@@ -357,6 +353,7 @@ namespace chess {
            return make_move (where, from);
         }
     }
+    
     void write_move (Choose choose, int pos) {
 
         switch (choose) {
