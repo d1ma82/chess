@@ -51,7 +51,6 @@ namespace chess {
 
     std::string state_to_str(States state) {
 
-        assert(state!=VOID);
         switch (state) {
             case B_ROOK:   case W_ROOK:     return "ROOK";
             case B_KNIGHT: case W_KHIGHT:   return "KNIGHT";
@@ -354,20 +353,20 @@ namespace chess {
         }
     }
     
-    void write_move (Choose choose, int pos) {
+    void write_move (Choose choose, int from, int where) {
 
         switch (choose) {
-            case LONG_CASTLING:  moves.emplace_back (States(position[pos]&0xFF), "0-0-0"); break;
-            case SHORT_CASTLING: moves.emplace_back (States(position[pos]&0xFF), "0-0"); break;
+            case LONG_CASTLING:  moves.emplace_back (States(position[where]&0xFF), "0-0-0"); break;
+            case SHORT_CASTLING: moves.emplace_back (States(position[where]&0xFF), "0-0"); break;
             default: {
                     std::ostringstream str;
-                    if (whites_) str << static_cast<char>('a'+start_pos%BOARD_SIZE) << BOARD_SIZE-start_pos/BOARD_SIZE << 
-                            static_cast<char>('a'+pos%BOARD_SIZE) << BOARD_SIZE-pos/BOARD_SIZE;
+                    if (whites_) str << static_cast<char>('a'+from%BOARD_SIZE) << BOARD_SIZE-from/BOARD_SIZE << 
+                            static_cast<char>('a'+where%BOARD_SIZE) << BOARD_SIZE-where/BOARD_SIZE;
                             
-                    else str << static_cast<char>('h'-start_pos%BOARD_SIZE) << 1+start_pos/BOARD_SIZE <<
-                                        static_cast<char>('h'-pos%BOARD_SIZE) << 1+pos/BOARD_SIZE;
+                    else str << static_cast<char>('h'-from%BOARD_SIZE) << 1+from/BOARD_SIZE <<
+                                        static_cast<char>('h'-where%BOARD_SIZE) << 1+where/BOARD_SIZE;
         
-                    moves.emplace_back (States(position[pos]&0xFF), str.str());                        
+                    moves.emplace_back (States(position[where]&0xFF), str.str());                        
             }
         }
     }
@@ -391,7 +390,7 @@ namespace chess {
             if (std::find(availables.begin(), availables.end(), choosed) != availables.end()) {
 
                 Choose choose = on_choose_end (choosed, start_pos);
-                write_move (choose, choosed);
+                write_move (choose, start_pos, choosed);
 
                 if (king_select) { king_pos = choosed; castling_enabled=false; }
 
@@ -425,14 +424,14 @@ namespace chess {
         int from=0, where=0;
         bool old_castling, old_king;
         int old_king_pos;
-
+        
         if (move.compare("0-0") == 0) {
 
             old_castling = castling_enabled, old_king=king_select, old_king_pos = king_pos;
             castling_enabled=true, king_select=true;
 
             if (whites_) { from = 4, where = 6; } else { from = 3, where = 1; }
-            write_move(on_choose_end(where, from), where);
+            on_choose_end(where, from);
 
             castling_enabled=old_castling, king_select=old_king, king_pos=old_king_pos;
         }
@@ -442,7 +441,7 @@ namespace chess {
             castling_enabled=true, king_select=true;
 
             if (whites_) { from = 4, where = 2; } else { from = 3, where = 5; }
-            write_move(on_choose_end(where, from), where);
+            on_choose_end(where, from);
 
             castling_enabled=old_castling, king_select=old_king, king_pos=old_king_pos;
 
@@ -455,9 +454,10 @@ namespace chess {
                 where = (move[3]-'1') * BOARD_SIZE + ('h'-move[2]);
             }
             whites_=!whites_;
-            write_move(on_choose_end (where, from), where);
+            on_choose_end (where, from);
             whites_=!whites_;
         }
+        moves.emplace_back (States(position[where]&0xFF), move);
         is_check = atacked(king_pos);
         wait = !wait;
         LOGD("Opponent: \t%s:\t%s", state_to_str(moves.rbegin()->state).c_str(), moves.rbegin()->move.c_str()) 
