@@ -6,11 +6,12 @@
 namespace chess {
     
     inline const int BOARD_SIZE=8;
-    inline std::array<unsigned int, BOARD_SIZE*BOARD_SIZE> position;
-    using on_move = std::function<void (const std::string& move)>;
+    // When read state use &0xFF cause for state used 1 byte, other 3 bytes used for flags
+    inline std::array<unsigned int, BOARD_SIZE*BOARD_SIZE> position; 
+    using on_move = std::function<void (std::string_view move)>;
 
     void init(bool whites, on_move listener);
     void on_select_cell (int x, int y);
-    void opponent_move (const std::string& move);
+    void opponent_move (std::string_view move);
     void clear();
 }

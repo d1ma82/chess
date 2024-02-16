@@ -29,19 +29,21 @@ namespace game {
  * The callback function for exchanging messages 
  * between the server and the client, here information about the game progress takes place
 */
-    void on_message(const std::string& message) {
+    void on_message(std::string_view message) {
         
         if (!connection) return;
 
         if (message.find("Hello", 0) != std::string::npos) {
             
-            LOGD("Request opponent color")
+            LOGI("%s", message.data())
             connection->send_message("color");
         }
         else if (message.find("move_done") != std::string::npos) {
 
+            std::stringstream str;
             size_t colon = message.find(":");
-            if (connection) connection->send_message("move:"+message.substr(colon+1));        // TODO: check if not connected
+            str<<"move:"<<message.substr(colon+1);
+            if (connection) connection->send_message(str.str());    
         }
         else if (message.find("move") != std::string::npos) {
             
@@ -49,18 +51,19 @@ namespace game {
             chess::opponent_move(message.substr(colon+1));
         }
         else if (message.compare("color") == 0) {
-
-            std::string send_str {"color:"+std::string(self_color)};
-            LOGD("Color request, send %s", send_str.c_str())
-            connection->send_message(send_str);
+            
+            std::stringstream str;
+            str<<"color:"<<self_color;
+            LOGD("Color request, send %s", str.str().c_str())
+            connection->send_message(str.str());
         }
-        else if (message.compare(std::string("color:"+std::string(WHITES))) == 0) {
+        else if (message.compare("color:whites") == 0) {
             
             LOGD("set color %s", BLACKS)
             chess::init(false, on_message);
             self_color = BLACKS;
         }
-        else if (message.compare(std::string("color:"+std::string(BLACKS))) == 0) {
+        else if (message.compare("color:blacks") == 0) {
             
             LOGD("set color %s", WHITES)
             chess::init(true, on_message);

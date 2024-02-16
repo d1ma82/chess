@@ -7,7 +7,7 @@
 namespace net {
 
     class Connection;
-    using on_recive = std::function<void (const std::string& message)>;
+    using on_recive = std::function<void (std::string_view message)>;
     using on_error = std::function<void (const boost::system::error_code&)>;
     using on_timeout = std::function<void ()>;
     using on_connection = std::function<void (std::unique_ptr<Connection>)>;
@@ -43,7 +43,7 @@ namespace net {
             return str.str(); 
         }
         
-        void send_message(const std::string& message) {
+        void send_message(std::string_view message) {
             
             boost::asio::async_write(client_sock, boost::asio::buffer(message), 
                 [this] (const boost::system::error_code& er, size_t write) {
