@@ -20,7 +20,7 @@ namespace chess {
 
     struct Move {
         States state;
-        std::string move {'\0', '\0', '\0', '\0'};
+        std::string move {'\0', '\0', '\0', '\0', '\0', '\0'};
     };
 
    const std::array<unsigned int, BOARD_SIZE*BOARD_SIZE> init_position =  {
@@ -120,16 +120,17 @@ namespace chess {
     void next_empty (int at) {
         
         std::swap(position[at], position[start_pos]);
-
+        bool king_atacked = atacked(king_pos);
+        
         if (!is_check) { 
                 // figure can only move when that not brings check
-            if (atacked(king_pos)) { std::swap(position[at], position[start_pos]); return; }
+            if (king_atacked) { std::swap(position[at], position[start_pos]); return; }
             std::swap(position[at], position[start_pos]);
             add_available(at); 
             return; 
         }
         
-        if (atacked(king_pos)) { std::swap(position[at], position[start_pos]); return; }
+        if (king_atacked) { std::swap(position[at], position[start_pos]); return; }
                      
         std::swap(position[at], position[start_pos]);   
         add_available(at);   
@@ -142,17 +143,18 @@ namespace chess {
         unsigned int old_state = position[at];
         position[at] = position[start_pos];
         position[start_pos] = VOID;
+        bool king_atacked = atacked(king_pos);
 
         if (!is_check) { 
             
-            if (atacked(king_pos)) { position[start_pos] = position[at]; position[at] = old_state; return; }
+            if (king_atacked) { position[start_pos] = position[at]; position[at] = old_state; return; }
             position[start_pos] = position[at];
             position[at] = old_state;
             add_available(at); 
             return;
         }
 
-        if (atacked(king_pos)) { position[start_pos] = position[at]; position[at] = old_state; return; }
+        if (king_atacked) { position[start_pos] = position[at]; position[at] = old_state; return; }
         
         position[start_pos] = position[at];
         position[at] = old_state;
@@ -355,6 +357,7 @@ namespace chess {
     
     void write_move (Choose choose, int from, int where) {
 
+
         switch (choose) {
             case LONG_CASTLING:  moves.emplace_back (States(position[where]&0xFF), "0-0-0"); break;
             case SHORT_CASTLING: moves.emplace_back (States(position[where]&0xFF), "0-0"); break;
@@ -365,7 +368,7 @@ namespace chess {
                             
                     else str << static_cast<char>('h'-from%BOARD_SIZE) << 1+from/BOARD_SIZE <<
                                         static_cast<char>('h'-where%BOARD_SIZE) << 1+where/BOARD_SIZE;
-        
+
                     moves.emplace_back (States(position[where]&0xFF), str.str());                        
             }
         }
@@ -395,8 +398,10 @@ namespace chess {
                 if (king_select) { king_pos = choosed; castling_enabled=false; }
 
                 if (is_check) is_check=false;
-
-                move_event("move_done:"+moves.rbegin()->move); 
+                
+                std::stringstream str;
+                str<<"move_done:"<<moves.rbegin()->move;
+                move_event(str.str()); 
                 wait = !wait;       // wait for opponent
 
                 LOGD("\t%s:\t%s", state_to_str(moves.rbegin()->state).c_str(), moves.rbegin()->move.c_str()) 
@@ -419,7 +424,7 @@ namespace chess {
  * Retrieve opponent move in chess notation, convert to local coordinates, apply move
  * 
 */
-    void opponent_move (const std::string& move) {
+    void opponent_move (std::string_view move) {
 
         int from=0, where=0;
         bool old_castling, old_king;
@@ -457,7 +462,7 @@ namespace chess {
             on_choose_end (where, from);
             whites_=!whites_;
         }
-        moves.emplace_back (States(position[where]&0xFF), move);
+        moves.emplace_back (States(position[where]&0xFF), std::string(move));
         is_check = atacked(king_pos);
         wait = !wait;
         LOGD("Opponent: \t%s:\t%s", state_to_str(moves.rbegin()->state).c_str(), moves.rbegin()->move.c_str()) 
