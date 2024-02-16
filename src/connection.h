@@ -23,7 +23,7 @@ namespace net {
     class Connection {
     private:
         boost::asio::ip::tcp::socket& client_sock;
-        size_t bytes_write, bytes_read = 0;
+        size_t bytes_write = 0, bytes_read = 0;
         boost::asio::streambuf buffer;
         on_recive recive_callback;
         on_error error_callback;
@@ -61,7 +61,7 @@ namespace net {
         void read_message () {
 
             boost::asio::async_read_until(client_sock, buffer, "\0", 
-                [this] (const boost::system::error_code& er, size_t read) {
+                [this] (const boost::system::error_code& er, size_t) {
 
                     if (er) {
                         if (er.value() == boost::asio::error::operation_aborted) return;
@@ -71,7 +71,7 @@ namespace net {
                     std::istream stream(&buffer);
                     std::string message;
                     std::getline(stream, message);
-                    bytes_read += read;
+                    bytes_read += message.size();
                     recive_callback(message);
                 }
             );
