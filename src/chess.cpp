@@ -34,19 +34,19 @@ namespace chess {
         8,  9,  10, 11, 12, 10, 9,  8
     };
 
-    const unsigned int selected_bit = 1<<8;
-    const unsigned int move_bit = 1<<9;
+    constexpr unsigned int selected_bit = 1<<8;
+    constexpr unsigned int availabe_bit = 1<<9;
+    constexpr unsigned int check_bit = 1<<11;
     int last_selected;      // last position
     unsigned int start_pos; // position from ray begins
-    int king_pos;           
+    int king_pos, enemy_king;           
     std::vector<unsigned int> availables; // available moves
     std::vector<Move> moves;
     bool whites_;
     bool castling_enabled;
     bool choose_begin;
-    bool king_select;
     bool wait=false;
-    bool is_check;
+    bool is_check, enemy_checked;
     on_move move_event;
 
     std::string state_to_str(States state) {
@@ -65,14 +65,15 @@ namespace chess {
     void init (bool whites, on_move listener) {
         
         move_event          = listener;
-        last_selected       =-1;
-        choose_begin         =false;
+        last_selected       = 0;
+        choose_begin        = false;
         whites_             = whites;
         castling_enabled    = true;
-        king_select         = false;
         is_check            = false;
+        enemy_checked       = false;
         wait                = !whites;
         king_pos            = whites_? 60: 59;
+        enemy_king          = whites_? 4: 3;
         availables.reserve(64);
         if (whites_) std::copy(init_position.begin(), init_position.end(), position.begin());
         else std::copy(init_position.rbegin(), init_position.rend(), position.begin());
@@ -82,13 +83,13 @@ namespace chess {
 
     void add_available (int pos) {
 
-        position[pos] += move_bit;
+        position[pos] += availabe_bit;
         availables.push_back(pos);
     }
 
     inline bool enemy(int at_pos) {
-        return whites_? position[at_pos] > 0 && position[at_pos] < 7
-                      : position[at_pos] > 6 && position[at_pos] < 13;
+        return whites_? (position[at_pos]&0xFF) >= B_ROOK && (position[at_pos]&0xFF) <= B_PAWN
+                      : (position[at_pos]&0xFF) >= W_PAWN && (position[at_pos]&0xFF) <= W_KING;
     }
 
     template<int dx, int dy>
@@ -235,14 +236,14 @@ namespace chess {
                         switch (position[at]&0xFF) {
                         
                             case B_ROOK:    ret = whites_? i % 2 != 0: false; break; 
-                            case B_KNIGHT:  ret = false;
+                            case B_KNIGHT:  ret = false; break;
                             case B_BISHOP:  ret = whites_? i % 2 == 0: false; break;
                             case B_QUEEN:   ret = whites_? true      : false; break;
                             case B_KING:    {int px=at%BOARD_SIZE, py=at/BOARD_SIZE; ret = whites_? abs(px-x)==1 || abs(y-py)==1: false; break;}
                             case B_PAWN:    {int px=at%BOARD_SIZE, py=at/BOARD_SIZE; ret = whites_? abs(px-x)==1 && y-py==1: false; break;}
                             case W_PAWN:    {int px=at%BOARD_SIZE, py=at/BOARD_SIZE; ret = whites_? false: abs(px-x)==1 && y-py==1; break;}
                             case W_ROOK:    ret = whites_? false     : i % 2 != 0; break; 
-                            case W_KHIGHT:  ret = false;
+                            case W_KHIGHT:  ret = false; break;
                             case W_BISHOP:  ret = whites_? false     : i % 2 == 0; break; 
                             case W_QUEEN:   ret = whites_? false     : true; break; 
                             case W_KING:    {int px=at%BOARD_SIZE, py=at/BOARD_SIZE; ret = whites_? false: abs(px-x)==1 || abs(y-py)==1; break;}
@@ -257,7 +258,6 @@ namespace chess {
 
     bool king (int x, int y, int pos) {
 
-        king_select=true;
         for (int i=1; i<9; ++i) { 
 
             ray(i, x, y,
@@ -322,6 +322,7 @@ namespace chess {
             std::swap(position[where+2], position[where-1]);
         }
         std::swap(position[where], position[from]);
+        position[from] = VOID;
         return LONG_CASTLING;
     }
 
@@ -333,28 +334,36 @@ namespace chess {
             std::swap(position[where-1], position[where+1]);
         }
         std::swap(position[where], position[from]);
+        position[from] = VOID;
         return SHORT_CASTLING;
     }
 
     Choose make_move(int where, int from) {
-
-        if (empty (where)) std::swap(position[where], position[from]);
-        else if (enemy(where)) { position[where] = position[from]; position[from] = VOID; }        
+        
+        if (empty (where)) { 
+            std::swap(position[where], position[from]); 
+            position[from] = VOID;          // clear any bits
+        }
+        else if (enemy(where)) { 
+            position[where] = position[from]; 
+            position[from] = VOID; 
+        }        
         return MOVE;
     }
 
-    Choose on_choose_end (int where, int from) {
+    Choose do_move (int where, int from) {
                 
-        if (castling_enabled && king_select && abs(where-from)==2) {
+        if (castling_enabled && king_pos==from && abs(where-from)==2) {
              
-             if (whites_) return from > where? make_long_castling(where, from): make_short_castling(where, from);
-             else return from > where? make_short_castling(where, from): make_long_castling(where, from);
+             return whites_? from > where? make_long_castling(where, from): make_short_castling(where, from):
+                from > where? make_short_castling(where, from): make_long_castling(where, from);
 
         } else {
+
            return make_move (where, from);
         }
     }
-    
+
     void write_move (Choose choose, int from, int where) {
 
 
@@ -373,6 +382,28 @@ namespace chess {
             }
         }
     }
+
+    void on_choose_end(int where, int from) {
+
+        std::for_each(availables.begin(), availables.end(), 
+                        [] (unsigned int v) { position[v] &= ~availabe_bit; });
+
+        if (std::find(availables.begin(), availables.end(), where) == availables.end()) return;
+
+        Choose choose = do_move (where, start_pos);
+        write_move (choose, start_pos, where);
+
+        if (king_pos==from) { king_pos = where; castling_enabled=false; }
+
+        if (is_check) { is_check=false; position[king_pos] &= ~check_bit; }
+        whites_=!whites_;
+        if (atacked(enemy_king)) { enemy_checked=true; position[enemy_king] += check_bit; }
+        whites_=!whites_;
+        move_event({"move_done:"+moves.rbegin()->move}); 
+        wait = !wait;       // wait for opponent
+
+        LOGD("\t%s:\t%s", state_to_str(moves.rbegin()->state).c_str(), moves.rbegin()->move.c_str()) 
+    }    
     /**
      * 
      * Callback from window, x and y converted from window coordinates to 0 to 7 coordinates
@@ -381,34 +412,15 @@ namespace chess {
     void on_select_cell (int x, int y) {
         
         if (wait) return;
+        position[last_selected] &= ~selected_bit;
 
-        if (last_selected>=0) position[last_selected] &= ~selected_bit; //unset select     
         int choosed = y*BOARD_SIZE+x; 
 
         if (choose_begin) {
             
-            std::for_each(availables.begin(), availables.end(), 
-                        [] (unsigned int v) { position[v] &= ~move_bit; });             // remove move bit
-            
-            if (std::find(availables.begin(), availables.end(), choosed) != availables.end()) {
-
-                Choose choose = on_choose_end (choosed, start_pos);
-                write_move (choose, start_pos, choosed);
-
-                if (king_select) { king_pos = choosed; castling_enabled=false; }
-
-                if (is_check) is_check=false;
-                
-                std::stringstream str;
-                str<<"move_done:"<<moves.rbegin()->move;
-                move_event(str.str()); 
-                wait = !wait;       // wait for opponent
-
-                LOGD("\t%s:\t%s", state_to_str(moves.rbegin()->state).c_str(), moves.rbegin()->move.c_str()) 
-            }
+            on_choose_end(choosed, start_pos);
             choose_begin    = false;
-            last_selected   = -1;
-            king_select     = false;
+            last_selected   = 0;
             availables.clear();
 
         } else {
@@ -427,28 +439,26 @@ namespace chess {
     void opponent_move (std::string_view move) {
 
         int from=0, where=0;
-        bool old_castling, old_king;
+        bool old_castling;
         int old_king_pos;
         
         if (move.compare("0-0") == 0) {
 
-            old_castling = castling_enabled, old_king=king_select, old_king_pos = king_pos;
-            castling_enabled=true, king_select=true;
+            old_castling = castling_enabled, old_king_pos = king_pos, king_pos=enemy_king;
+            castling_enabled=true;
 
             if (whites_) { from = 4, where = 6; } else { from = 3, where = 1; }
-            on_choose_end(where, from);
-
-            castling_enabled=old_castling, king_select=old_king, king_pos=old_king_pos;
+            do_move (where, from);
+            enemy_king = where, castling_enabled=old_castling, king_pos=old_king_pos;
         }
         else if (move.compare("0-0-0") == 0) {
 
-            old_castling = castling_enabled, old_king=king_select, old_king_pos = king_pos;
-            castling_enabled=true, king_select=true;
+            old_castling = castling_enabled, old_king_pos = king_pos, king_pos=enemy_king;
+            castling_enabled=true;
 
             if (whites_) { from = 4, where = 2; } else { from = 3, where = 5; }
-            on_choose_end(where, from);
-
-            castling_enabled=old_castling, king_select=old_king, king_pos=old_king_pos;
+            do_move(where, from);
+            enemy_king = where, castling_enabled=old_castling, king_pos=old_king_pos;
 
         } else {
             if (whites_) {
@@ -459,11 +469,15 @@ namespace chess {
                 where = (move[3]-'1') * BOARD_SIZE + ('h'-move[2]);
             }
             whites_=!whites_;
-            on_choose_end (where, from);
+            do_move (where, from);
             whites_=!whites_;
+            if (from==enemy_king) enemy_king=where;
         }
+        if (enemy_checked) { enemy_checked=false; position[enemy_king] &= ~check_bit; }
         moves.emplace_back (States(position[where]&0xFF), std::string(move));
         is_check = atacked(king_pos);
+        if (is_check) position[king_pos]+=check_bit;
+        
         wait = !wait;
         LOGD("Opponent: \t%s:\t%s", state_to_str(moves.rbegin()->state).c_str(), moves.rbegin()->move.c_str()) 
     }

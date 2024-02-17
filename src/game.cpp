@@ -54,8 +54,8 @@ namespace game {
             
             std::stringstream str;
             str<<"color:"<<self_color;
-            LOGD("Color request, send %s", str.str().c_str())
             connection->send_message(str.str());
+            LOGD("Color request, send %s", str.str().c_str())
         }
         else if (message.compare("color:whites") == 0) {
             
