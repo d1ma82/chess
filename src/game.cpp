@@ -15,14 +15,32 @@ namespace game {
     net::TCPServer* server {nullptr};
     net::TCPClient* client {nullptr};
     filter::Board* board {nullptr};
+    filter::Arrow* arrow {nullptr};
     std::unique_ptr<net::Connection> connection {nullptr};
+    std::array<float, 6> line = {};
     
-    const int WIDTH=640;
-    const int HEIGHT=640;
+    constexpr int WIDTH=640;
+    constexpr int HEIGHT=640;
     const char* WHITES = "whites";
     const char* BLACKS = "blacks";
     const char* self_color;
 
+    /**
+     * Callback from chess engine to convert board coord into gl coord,
+     * to draw an arrow
+    */
+    void on_opponent_move (unsigned int from, unsigned int to) {
+
+        float step = WIDTH/static_cast<float>(chess::BOARD_SIZE);
+        
+                    // Body
+        line[0] = ((from%chess::BOARD_SIZE*step*2.0f)+step)/WIDTH-1.0f;         // x1
+        line[1] = 1.0f-((from/chess::BOARD_SIZE*step*2.0f)+step)/HEIGHT;        // y1
+        line[2] = 0.0f;
+        line[3] = ((to%chess::BOARD_SIZE*step*2.0f)+step)/WIDTH-1.0f;           // x2
+        line[4] = 1.0f-((to/chess::BOARD_SIZE*step*2.0f)+step)/HEIGHT;          // y2
+        line[5] = 0.0f;
+    }
 
 /**
  * 
@@ -60,13 +78,13 @@ namespace game {
         else if (message.compare("color:whites") == 0) {
             
             LOGD("set color %s", BLACKS)
-            chess::init(false, on_message);
+            chess::init(false, on_message, on_opponent_move);
             self_color = BLACKS;
         }
         else if (message.compare("color:blacks") == 0) {
             
             LOGD("set color %s", WHITES)
-            chess::init(true, on_message);
+            chess::init(true, on_message, on_opponent_move);
             self_color = WHITES;
         }
         connection->read_message();
@@ -74,7 +92,7 @@ namespace game {
 
     void init_internal (bool whites) {
 
-        chess::init(whites, on_message);        
+        chess::init(whites, on_message, on_opponent_move);        
         
         window = new window::GLFW(dims{WIDTH, HEIGHT}, "Chess");
         window->set_mouse_key_listener([] (double X, double Y) {
@@ -87,6 +105,9 @@ namespace game {
         board  = new filter::Board(chess::BOARD_SIZE, dims{WIDTH, HEIGHT});
         board->set_uniformuiv(chess::position.data());
         (*window)->attach_filter(board);
+
+        arrow = new filter::Arrow(line.data(), line.size()*sizeof(float));
+        (*window)->attach_filter(arrow);
         LOGD("Creating game for %s", (whites? WHITES: BLACKS))        
     }
 
@@ -161,6 +182,7 @@ namespace game {
     void clear () {
 // TODO: send EOF when exit
         chess::clear();
+        delete arrow; arrow = nullptr;
         delete board; board = nullptr;
         delete window; window = nullptr; 
         delete server; server = nullptr;

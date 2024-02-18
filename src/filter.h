@@ -12,6 +12,6 @@ namespace filter {
 
     class OpenGL: public Base {
     public:
-        virtual void set_uniformuiv(unsigned int*)=0;
+      //  virtual void set_uniformuiv(unsigned int*)=0;
     };
 }

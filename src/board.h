@@ -31,7 +31,7 @@ namespace filter
         void init_gl_buffers();
         void load_textures(dims view);
     public:
-        explicit Board (unsigned int board_size, dims view);
+        Board (unsigned int board_size, dims view);
         ~Board();
         
         Board (const Board& other) = delete;
@@ -41,5 +41,20 @@ namespace filter
 
         void apply ();
         void set_uniformuiv (unsigned int* data) { position=data; }
+    };
+
+    class Arrow final: public filter::OpenGL {
+    private:
+        GLuint VAO = 0, VBO = 0;
+        GLuint VS=0, FS=0, PR=0;
+        size_t buff_size;
+        GLfloat* arrow;
+        GLint err;
+         
+        void init_gl_buffers();
+    public:
+        Arrow(float* buffer, size_t size);
+        ~Arrow();
+        void apply();
     };
 }

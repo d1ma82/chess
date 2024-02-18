@@ -144,6 +144,7 @@ namespace filter {
 
     void Board::apply () {
         
+        CALLGL(glUseProgram(PR))
         CALLGL(glUniform1uiv(position_location, cells, position))
 
         CALLGL(glBindTextureUnit(0, texture_array))
@@ -163,7 +164,6 @@ namespace filter {
         CALLGL(glDeleteShader(FS));
         CALLGL(glDeleteShader(VS));
         CALLGL(glDeleteProgram(PR));
-        PR=0; FS=0; VS=0;
 
         CALLGL(glDeleteTextures(1, &texture_array))
         CALLGL(glDeleteBuffers(1, &IBO))
@@ -171,6 +171,73 @@ namespace filter {
         CALLGL(glDeleteVertexArrays(1, &VAO))
 
         LOGD("Board destoyed")
+    }
+
+    const char* vert_src = R"(
+        #version 460 core
+        layout (location = 0) in vec3 aPos;
+        void main() {
+            gl_Position = vec4(aPos, 1.0);
+        }
+    )";
+
+    const char* frag_src = R"(
+        #version 460 core
+        out vec4 FragColor;
+        uniform vec3 color;
+        void main() {
+            FragColor = vec4(color, 1.0f);
+        } 
+    )";    
+
+    Arrow::Arrow (float* buffer, size_t size)
+        : buff_size{size}, arrow{buffer} {
+        init_gl_buffers();
+    }
+
+    void Arrow::init_gl_buffers() {
+        
+        VS = gl::create_shader (vert_src, GL_VERTEX_SHADER);
+        FS = gl::create_shader (frag_src, GL_FRAGMENT_SHADER);
+
+        PR = gl::create_programm(VS, FS);
+
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+
+        glBindVertexArray(VAO);
+
+        glLineWidth(5.0f);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, buff_size, nullptr, GL_DYNAMIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(GLfloat), (void*)0);
+        glEnableVertexAttribArray(0);
+        
+        glUseProgram(PR);
+        glUniform3f(glGetUniformLocation(PR, "color"), 0.0f, 0.0f, 1.0f);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+
+    void Arrow::apply() {
+
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, buff_size, arrow);
+
+        glUseProgram(PR);
+        glBindVertexArray(VAO);
+        glDrawArrays(GL_LINES, 0, 2);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+
+    Arrow::~Arrow() {
+
+        glDeleteShader(FS);
+        glDeleteShader(VS);
+        glDeleteProgram(PR);
+
+        glDeleteBuffers(1, &VBO);
+        glDeleteVertexArrays(1, &VAO);
     }
 
 } 

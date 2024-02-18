@@ -39,7 +39,7 @@ namespace chess {
     constexpr unsigned int check_bit = 1<<11;
     int last_selected;      // last position
     unsigned int start_pos; // position from ray begins
-    int king_pos, enemy_king;           
+    unsigned int king_pos, enemy_king;           
     std::vector<unsigned int> availables; // available moves
     std::vector<Move> moves;
     bool whites_;
@@ -48,6 +48,7 @@ namespace chess {
     bool wait=false;
     bool is_check, enemy_checked;
     on_move move_event;
+    on_move_coord opponent_move_event;
 
     std::string state_to_str(States state) {
 
@@ -62,9 +63,10 @@ namespace chess {
         }
     }
 
-    void init (bool whites, on_move listener) {
+    void init (bool whites, on_move listener, on_move_coord opponent_move_listener) {
         
         move_event          = listener;
+        opponent_move_event = opponent_move_listener;
         last_selected       = 0;
         choose_begin        = false;
         whites_             = whites;
@@ -351,7 +353,7 @@ namespace chess {
         return MOVE;
     }
 
-    Choose do_move (int where, int from) {
+    Choose do_move (unsigned int where, unsigned int from) {
                 
         if (castling_enabled && king_pos==from && abs(where-from)==2) {
              
@@ -383,7 +385,7 @@ namespace chess {
         }
     }
 
-    void on_choose_end(int where, int from) {
+    void on_choose_end(unsigned int where, unsigned int from) {
 
         std::for_each(availables.begin(), availables.end(), 
                         [] (unsigned int v) { position[v] &= ~availabe_bit; });
@@ -438,7 +440,7 @@ namespace chess {
 */
     void opponent_move (std::string_view move) {
 
-        int from=0, where=0;
+        unsigned int from=0, where=0;
         bool old_castling;
         int old_king_pos;
         
@@ -477,7 +479,7 @@ namespace chess {
         moves.emplace_back (States(position[where]&0xFF), std::string(move));
         is_check = atacked(king_pos);
         if (is_check) position[king_pos]+=check_bit;
-        
+        opponent_move_event(from, where);
         wait = !wait;
         LOGD("Opponent: \t%s:\t%s", state_to_str(moves.rbegin()->state).c_str(), moves.rbegin()->move.c_str()) 
     }
