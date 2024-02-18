@@ -31,7 +31,7 @@ namespace filter
         void init_gl_buffers();
         void load_textures(dims view);
     public:
-        Board (unsigned int board_size, dims view);
+        Board (unsigned int board_size, dims view, unsigned int* position_data);
         ~Board();
         
         Board (const Board& other) = delete;
@@ -40,7 +40,6 @@ namespace filter
         Board& operator = (Board&& other) = delete;
 
         void apply ();
-        void set_uniformuiv (unsigned int* data) { position=data; }
     };
 
     class Arrow final: public filter::OpenGL {

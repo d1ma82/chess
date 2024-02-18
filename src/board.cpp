@@ -134,8 +134,8 @@ namespace filter {
         }
     }
 
-    Board::Board(unsigned int board_size, dims view)
-        : board_size_{board_size}, cells{board_size_*board_size_} {
+    Board::Board(unsigned int board_size, dims view, unsigned int* position_data)
+        : board_size_{board_size}, cells{board_size_*board_size_}, position{position_data} {
         
         init_buffers();
         init_gl_buffers(); 
@@ -150,7 +150,7 @@ namespace filter {
         CALLGL(glBindTextureUnit(0, texture_array))
         
         CALLGL(glBindVertexArray(VAO))
-        CALLGL(glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(i_size), GL_UNSIGNED_INT, 0))
+        CALLGL(glDrawElements(GL_TRIANGLES, i_size, GL_UNSIGNED_INT, 0))
         CALLGL(glBindVertexArray(0))
 
         CALLGL(glBindTextureUnit(0, 0))

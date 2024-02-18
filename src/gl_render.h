@@ -23,12 +23,13 @@ namespace render {
             
             glViewport(0, 0, view.first, view.second);
             glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+            glEnable(GL_MULTISAMPLE);
         }
 
         void run() { 
 
             if (filters.empty()) return;
-            CALLGL(glClear(GL_COLOR_BUFFER_BIT))
+            glClear(GL_COLOR_BUFFER_BIT);
             for (auto f: filters) f->apply();
         }
         void attach_filter(filter::Base* filter) { filters.push_back(filter); }

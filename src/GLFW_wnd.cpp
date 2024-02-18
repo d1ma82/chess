@@ -11,6 +11,7 @@ namespace window {
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+        glfwWindowHint(GLFW_SAMPLES, 16);
 
         window = glfwCreateWindow(size.first, size.second, title, nullptr, nullptr);
         if (window==nullptr) throw std::runtime_error ("Failed to create GLFW window");

@@ -102,8 +102,7 @@ namespace game {
               //  LOGD("Coord %dx%d", x,y)
                 chess::on_select_cell(x,y);
         });
-        board  = new filter::Board(chess::BOARD_SIZE, dims{WIDTH, HEIGHT});
-        board->set_uniformuiv(chess::position.data());
+        board  = new filter::Board(chess::BOARD_SIZE, dims{WIDTH, HEIGHT}, chess::position.data());
         (*window)->attach_filter(board);
 
         arrow = new filter::Arrow(line.data(), line.size()*sizeof(float));
