@@ -1,6 +1,6 @@
 #pragma once
 
-#include <glad/glad.h>
+#include "glad.h"
 
 #ifdef NDEBUG
         #define CALLGL(proc) proc;
