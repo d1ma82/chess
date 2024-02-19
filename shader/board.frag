@@ -13,10 +13,9 @@ void main()
     uint figure = position[uint(fragBoardCoord.y*8+fragBoardCoord.x)];
     bool selected = (figure & uint(1<<8)) !=0;
     bool available_move = (figure & uint(1<<9)) !=0;
+    bool move = (figure & uint(1<<10)) !=0;
     bool check = (figure & uint(1<<11)) !=0;
     figure &= 0xFF;
-
-    //vec3 color = move? vec3(0.88, 0.72, 0.5): fragVertexColor;
     
     vec3 color;
     
@@ -25,7 +24,7 @@ void main()
         float pct = distance(fragTexCoord, vec2(0.5));
         finalColor = vec4(mix(fragVertexColor, color, pct), 1.0);
     }
-    else if (selected) {         // draw rect
+    if (selected) {         // draw rect
         
         float thickness = 0.05;
         color=vec3(0.1, 0.5, 1.0);
@@ -34,6 +33,11 @@ void main()
         float border = bl.x * bl.y * tr.x * tr.y;
     
         finalColor = vec4(mix(color, fragVertexColor, border), 1.0);
+    }
+    if (move) {
+        color=vec3(0.0, 1.0, 0.0);
+        float pct = distance(fragTexCoord, vec2(0.5));
+        finalColor = vec4(mix(fragVertexColor, color, pct), 1.0);        
     }    
     if (available_move){   // draw circle
         

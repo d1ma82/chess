@@ -36,8 +36,10 @@ namespace chess {
 
     constexpr unsigned int selected_bit = 1<<8;
     constexpr unsigned int availabe_bit = 1<<9;
+    constexpr unsigned int move_bit = 1<<10;
     constexpr unsigned int check_bit = 1<<11;
-    int last_selected;      // last position
+    unsigned int last_from, last_to;
+    unsigned int last_selected;      // last position
     unsigned int start_pos; // position from ray begins
     unsigned int king_pos, enemy_king;           
     std::vector<unsigned int> availables; // available moves
@@ -68,6 +70,8 @@ namespace chess {
         move_event          = listener;
         opponent_move_event = opponent_move_listener;
         last_selected       = 0;
+        last_from           = 0;
+        last_to             = 0;
         choose_begin        = false;
         whites_             = whites;
         castling_enabled    = true;
@@ -342,14 +346,11 @@ namespace chess {
 
     Choose make_move(int where, int from) {
         
-        if (empty (where)) { 
-            std::swap(position[where], position[from]); 
-            position[from] = VOID;          // clear any bits
-        }
-        else if (enemy(where)) { 
-            position[where] = position[from]; 
-            position[from] = VOID; 
-        }        
+        if (empty (where) || enemy(where)) {
+
+            position[where] = static_cast<unsigned int>(position[from]&0xFF);    // clear any bits and copy only byte info
+            position[from] = VOID;          
+        }      
         return MOVE;
     }
 
@@ -385,6 +386,15 @@ namespace chess {
         }
     }
 
+    void update_move_bit(unsigned int where, unsigned int from) {
+
+        position[last_from] &= ~move_bit;
+        position[last_to] &= ~move_bit;
+        last_from = from, last_to = where;
+        position[from] += move_bit;
+        position[where] += move_bit;
+    }
+
     void on_choose_end(unsigned int where, unsigned int from) {
 
         std::for_each(availables.begin(), availables.end(), 
@@ -401,6 +411,7 @@ namespace chess {
         whites_=!whites_;
         if (atacked(enemy_king)) { enemy_checked=true; position[enemy_king] += check_bit; }
         whites_=!whites_;
+        update_move_bit (where, from);
         move_event({"move_done:"+moves.rbegin()->move}); 
         wait = !wait;       // wait for opponent
 
@@ -479,6 +490,7 @@ namespace chess {
         moves.emplace_back (States(position[where]&0xFF), std::string(move));
         is_check = atacked(king_pos);
         if (is_check) position[king_pos]+=check_bit;
+        update_move_bit(where, from);
         opponent_move_event(from, where);
         wait = !wait;
         LOGD("Opponent: \t%s:\t%s", state_to_str(moves.rbegin()->state).c_str(), moves.rbegin()->move.c_str()) 

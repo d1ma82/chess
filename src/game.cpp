@@ -99,14 +99,13 @@ namespace game {
             
                 int x = static_cast<int>(X/WIDTH*chess::BOARD_SIZE);
                 int y = static_cast<int>(Y/HEIGHT*chess::BOARD_SIZE);
-              //  LOGD("Coord %dx%d", x,y)
                 chess::on_select_cell(x,y);
         });
         board  = new filter::Board(chess::BOARD_SIZE, dims{WIDTH, HEIGHT}, chess::position.data());
         (*window)->attach_filter(board);
 
-        arrow = new filter::Arrow(line.data(), line.size()*sizeof(float));
-        (*window)->attach_filter(arrow);
+       // arrow = new filter::Arrow(line.data(), line.size()*sizeof(float));
+      //  (*window)->attach_filter(arrow);
         LOGD("Creating game for %s", (whites? WHITES: BLACKS))        
     }
 
