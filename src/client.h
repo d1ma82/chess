@@ -17,9 +17,7 @@ namespace net {
         std::unique_ptr<Connection> acquire() {
 
             std::lock_guard<std::mutex> lock(mutex);
-            if (!connection) connection = 
-                std::make_unique<Connection>(socket, callbacks.recive_callback, callbacks.error_callback);
-            return std::move(connection);
+            return std::make_unique<Connection>(socket, callbacks.recive_callback, callbacks.error_callback);
         }   
 
     public:
