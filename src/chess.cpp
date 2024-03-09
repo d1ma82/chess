@@ -5,7 +5,9 @@
 #include <sstream>
 #include <algorithm>
 #include <functional>
+#include <coroutine>
 #include <cassert>
+#include <utility>
 #include "log.h"
 
 namespace chess {
@@ -16,12 +18,48 @@ namespace chess {
     enum Choose {LONG_CASTLING, SHORT_CASTLING, MOVE};
     
     enum States {VOID, B_ROOK, B_KNIGHT, B_BISHOP, B_QUEEN, B_KING, B_PAWN,
-                W_PAWN, W_ROOK, W_KHIGHT, W_BISHOP, W_QUEEN, W_KING};
+                W_PAWN, W_ROOK, W_KNIGHT, W_BISHOP, W_QUEEN, W_KING};
 
     struct Move {
         States state;
         std::string move {'\0', '\0', '\0', '\0', '\0', '\0'};
     };
+
+    struct Chess {
+        struct promise_type {
+            int in{};
+
+            void unhandled_exception() { std::rethrow_exception(std::current_exception()); }
+            auto get_return_object() { return Chess{ std::coroutine_handle<promise_type>::from_promise(*this)};}
+            auto initial_suspend() noexcept { return std::suspend_always(); }
+            auto final_suspend() noexcept { return std::suspend_always(); }
+            void return_value() {}
+            auto yield_value(int) { return std::suspend_always(); }
+
+            auto await_transform(int) {
+                struct awaiter {
+                    promise_type& pt;
+                    constexpr bool  await_ready() noexcept { return true; }
+                    int await_resume() noexcept { return pt.in; }
+                    void await_suspend (std::coroutine_handle<>) noexcept {}
+                };
+                return awaiter{*this};
+            }
+        };
+        Chess() {}
+        explicit Chess(std::coroutine_handle<promise_type> h): handle{h} {}
+        Chess (Chess const&)=delete;
+        Chess (Chess && rhs): handle{std::exchange(rhs.handle, nullptr)} {}
+        void operator = (Chess && rhs) { handle = std::exchange(rhs.handle, nullptr); }
+        ~Chess() { if (handle) handle.destroy(); }
+
+        void next (int coord) {
+
+            handle.promise().in=coord;
+            if (!handle.done()) handle.resume();
+        }
+        private: std::coroutine_handle<promise_type> handle;
+    };    
 
    const std::array<unsigned int, BOARD_SIZE*BOARD_SIZE> init_position =  {
         1,  2,  3,  4,  5,  3,  2,  1,
@@ -51,17 +89,87 @@ namespace chess {
     bool is_check, enemy_checked;
     on_move move_event;
     on_move_coord opponent_move_event;
+    std::array<unsigned int, 4> upgrade_whites = {W_QUEEN, W_ROOK, W_BISHOP, W_KNIGHT};
+    std::array<unsigned int, 4> upgrade_blacks = {B_QUEEN, B_ROOK, B_BISHOP, B_KNIGHT};
+    Chess routine;
 
     std::string state_to_str(States state) {
 
         switch (state) {
             case B_ROOK:   case W_ROOK:     return "ROOK";
-            case B_KNIGHT: case W_KHIGHT:   return "KNIGHT";
+            case B_KNIGHT: case W_KNIGHT:   return "KNIGHT";
             case B_BISHOP: case W_BISHOP:   return "BISHOP";
             case B_QUEEN:  case W_QUEEN:    return "QUEEN";
             case B_KING:   case W_KING:     return "KING";
             case B_PAWN:   case W_PAWN:     return "PAWN";
             default:       return "VOID";
+        }
+    }
+
+    inline char int_to_rank(int rank) {
+        
+        switch (rank) {
+            case 0: return 'Q';
+            case 1: return 'R';
+            case 2: return 'B';
+            case 3: return 'K';
+            default: return '\0';
+        }
+    }
+
+    bool on_choose_begin (States state, int x, int y, int pos);
+    void on_choose_end (unsigned int where, unsigned int from, char rank);
+ 
+    void toogle_save_restore(States state, unsigned int from) {
+        
+        switch (state) {
+            case W_PAWN:
+                        for (int i=0; i<4; ++i) {
+                            std::swap(position[from], upgrade_whites[i]);
+                            from += BOARD_SIZE;
+                        }
+                        break;
+            case B_PAWN: 
+                        for (int i=0; i<4; ++i) {
+                            std::swap(position[from], upgrade_blacks[i]);
+                            from += BOARD_SIZE;
+                        }
+            default: break;
+        }
+    }
+    
+    Chess fun() {
+
+        while (true) {
+
+            int choosed = co_await int();
+            int r = -1;
+            if (choose_begin) {
+                
+                States state = States(position[start_pos]&0xFF);
+                if (choosed/BOARD_SIZE==0 && (state==W_PAWN||state==B_PAWN)) {
+                    
+                    position[start_pos]=VOID;
+                    toogle_save_restore(state, choosed);
+                    co_yield 0;
+                    int rank = co_await int();
+                    toogle_save_restore(state, choosed);
+                    r = rank/BOARD_SIZE > 3? 0: rank/BOARD_SIZE;
+                    position[choosed] = whites_? upgrade_whites[r]: upgrade_blacks[r];
+                }
+                on_choose_end(choosed, start_pos, int_to_rank(r));
+                choose_begin    = false;
+                last_selected   = 0;
+                availables.clear();
+            } else {
+                // Begin construct availabe moves 
+                start_pos = choosed;
+                int x = choosed%BOARD_SIZE, y = choosed/BOARD_SIZE;
+                choose_begin = on_choose_begin (States(position[choosed]&0xFF), x, y, choosed);
+                position[choosed] += selected_bit; 
+                last_selected = choosed;
+            }
+            co_yield 0;
         }
     }
 
@@ -83,6 +191,8 @@ namespace chess {
         availables.reserve(64);
         if (whites_) std::copy(init_position.begin(), init_position.end(), position.begin());
         else std::copy(init_position.rbegin(), init_position.rend(), position.begin());
+        
+        routine = fun();
     }
 
     inline bool empty(int pos) { return (position[pos]&0xFF) == VOID; }
@@ -230,7 +340,7 @@ namespace chess {
         calc_knight_pos(x,  y, knight);
 
         if (std::any_of(knight.begin(), knight.end(), 
-            [] (int p) { return p>0 && (position[p]&0xFF) == (whites_? B_KNIGHT: W_KHIGHT); })) return true;
+            [] (int p) { return p>0 && (position[p]&0xFF) == (whites_? B_KNIGHT: W_KNIGHT); })) return true;
 
         for (int i=1; i<9; ++i) {
 
@@ -249,7 +359,7 @@ namespace chess {
                             case B_PAWN:    {int px=at%BOARD_SIZE, py=at/BOARD_SIZE; ret = whites_? abs(px-x)==1 && y-py==1: false; break;}
                             case W_PAWN:    {int px=at%BOARD_SIZE, py=at/BOARD_SIZE; ret = whites_? false: abs(px-x)==1 && y-py==1; break;}
                             case W_ROOK:    ret = whites_? false     : i % 2 != 0; break; 
-                            case W_KHIGHT:  ret = false; break;
+                            case W_KNIGHT:  ret = false; break;
                             case W_BISHOP:  ret = whites_? false     : i % 2 == 0; break; 
                             case W_QUEEN:   ret = whites_? false     : true; break; 
                             case W_KING:    {int px=at%BOARD_SIZE, py=at/BOARD_SIZE; ret = whites_? false: abs(px-x)==1 || abs(y-py)==1; break;}
@@ -312,7 +422,7 @@ namespace chess {
             case B_PAWN:    return whites_? false           : pawn(x,y,pos);
             case W_PAWN:    return whites_? pawn(x,y,pos)   : false;
             case W_ROOK:    return whites_? rook(x, y)      : false;
-            case W_KHIGHT:  return whites_? knight(x, y)    : false;
+            case W_KNIGHT:  return whites_? knight(x, y)    : false;
             case W_BISHOP:  return whites_? bishop(x, y)    : false;
             case W_QUEEN:   return whites_? queen(x, y)     : false;
             case W_KING:    return whites_? king(x, y, pos) : false;
@@ -353,7 +463,7 @@ namespace chess {
         }      
         return MOVE;
     }
-
+    
     Choose do_move (unsigned int where, unsigned int from) {
                 
         if (castling_enabled && king_pos==from && abs(where-from)==2) {
@@ -362,12 +472,12 @@ namespace chess {
                 from > where? make_short_castling(where, from): make_long_castling(where, from);
 
         } else {
-
-           return make_move (where, from);
+            
+            return make_move (where, from);
         }
     }
 
-    void write_move (Choose choose, int from, int where) {
+    void write_move (Choose choose, int from, int where, char rank) {
 
 
         switch (choose) {
@@ -380,7 +490,8 @@ namespace chess {
                             
                     else str << static_cast<char>('h'-from%BOARD_SIZE) << 1+from/BOARD_SIZE <<
                                         static_cast<char>('h'-where%BOARD_SIZE) << 1+where/BOARD_SIZE;
-
+                    
+                    str<<rank;
                     moves.emplace_back (States(position[where]&0xFF), str.str());                        
             }
         }
@@ -395,7 +506,7 @@ namespace chess {
         position[where] += move_bit;
     }
 
-    void on_choose_end(unsigned int where, unsigned int from) {
+    void on_choose_end(unsigned int where, unsigned int from, char rank) {
 
         std::for_each(availables.begin(), availables.end(), 
                         [] (unsigned int v) { position[v] &= ~availabe_bit; });
@@ -403,7 +514,7 @@ namespace chess {
         if (std::find(availables.begin(), availables.end(), where) == availables.end()) return;
 
         Choose choose = do_move (where, start_pos);
-        write_move (choose, start_pos, where);
+        write_move (choose, start_pos, where, rank);
 
         if (king_pos==from) { king_pos = where; castling_enabled=false; }
 
@@ -417,6 +528,7 @@ namespace chess {
 
         LOGD("\t%s:\t%s", state_to_str(moves.rbegin()->state).c_str(), moves.rbegin()->move.c_str()) 
     }    
+
     /**
      * 
      * Callback from window, x and y converted from window coordinates to 0 to 7 coordinates
@@ -426,23 +538,7 @@ namespace chess {
         
         if (wait) return;
         position[last_selected] &= ~selected_bit;
-
-        int choosed = y*BOARD_SIZE+x; 
-
-        if (choose_begin) {
-            
-            on_choose_end(choosed, start_pos);
-            choose_begin    = false;
-            last_selected   = 0;
-            availables.clear();
-
-        } else {
-                // Begin construct availabe moves 
-            start_pos = choosed;
-            choose_begin = on_choose_begin (States(position[choosed]&0xFF), x, y, choosed);
-            position[choosed] += selected_bit; 
-            last_selected = choosed;
-        }
+        routine.next(y*BOARD_SIZE+x);
     }
 
 /**
@@ -480,6 +576,15 @@ namespace chess {
             } else {
                 from  = (move[1]-'1') * BOARD_SIZE + ('h'-move[0]);
                 where = (move[3]-'1') * BOARD_SIZE + ('h'-move[2]);
+            }
+            if (move.size()>4) {
+                switch(move[4]) {
+                    case 'Q': position[from]=whites_? B_QUEEN: W_QUEEN; break;
+                    case 'R': position[from]=whites_? B_ROOK: W_ROOK; break;
+                    case 'B': position[from]=whites_? B_BISHOP: W_BISHOP; break;
+                    case 'K': position[from]=whites_? B_KNIGHT: W_KNIGHT; break;
+                    default: break;
+                }
             }
             whites_=!whites_;
             do_move (where, from);

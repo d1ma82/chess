@@ -5,7 +5,7 @@
 
 namespace chess {
     
-    inline const int BOARD_SIZE=8;
+    constexpr int BOARD_SIZE=8;
     // When read state use &0xFF cause for state used 1 byte, other 3 bytes used for flags
     inline std::array<unsigned int, BOARD_SIZE*BOARD_SIZE> position; 
     using on_move = std::function<void (std::string_view move)>;
